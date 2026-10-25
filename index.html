@@ -44,6 +44,7 @@ button{border:0;border-radius:10px;padding:12px 16px;cursor:pointer;font-weight:
 .controls select{flex:1;min-width:160px}
 .hint{font-size:12px;color:light-dark(#66766d,#a9b9b0);margin-top:10px;line-height:1.5}
 .results-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:20px 2px 12px}
+.results-head[hidden],#results[hidden]{display:none!important}
 .results-head h2{font-size:19px;margin:0}
 #count{font-size:13px;color:light-dark(#65736b,#a9b9b0)}
 .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -251,8 +252,8 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid 
   </div>
   <div class="hint"><strong>Name search is voter-only by default.</strong> It checks the voter's own Telugu and English name—not the father’s or husband’s name. Choose “All fields” or a specific field when you want to search relatives, EPIC, house number, age, or other details. Data syncs from the published Google Sheet on load and every 60 seconds. Use Refresh Data to check immediately; internet access is required.</div>
  </section>
- <div class="results-head"><h2>Voter records</h2><div id="count" aria-live="polite"></div></div>
- <section id="results" class="cards" aria-live="polite"></section>
+ <div class="results-head" id="resultsHead" hidden><h2>Search results</h2><div id="count" aria-live="polite"></div></div>
+ <section id="results" class="cards" aria-live="polite" hidden></section>
  <div class="footer">Local searchable directory · Data shown from the uploaded Excel file · Verify official electoral details with the election authority.</div>
 </main>
 </div>
@@ -276,9 +277,19 @@ function filtered(){
 function escapeHTML(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function item(label,value){return `<div><div class="label">${label}</div><div class="value">${escapeHTML(value||"—")}</div></div>`;}
 function render(){
+ const query=String($("q").value||"").trim();
+ const hasQuery=query.length>0;
+ const resultsHead=$("resultsHead"), resultsBox=$("results");
+ resultsHead.hidden=!hasQuery;
+ resultsBox.hidden=!hasQuery;
+ if(!hasQuery){
+  $("count").textContent="";
+  resultsBox.innerHTML="";
+  return;
+ }
  const rows=filtered();
  $("count").textContent=`${rows.length.toLocaleString()} result${rows.length===1?"":"s"}`;
- $("results").innerHTML=rows.length ? rows.map(r=>`
+ resultsBox.innerHTML=rows.length ? rows.map(r=>`
  <article class="card">
   <div class="cardtop"><div><div class="name">${escapeHTML(r["Voter Name (English)"]||"Name not available")}</div><div class="telugu" lang="te">${escapeHTML(r["Voter Name (Telugu)"])}</div></div><span class="badge">S.No ${escapeHTML(r["S.No"])}</span></div>
   <div class="epic">EPIC · ${escapeHTML(r["EPIC No"]||"Not listed")}</div>
