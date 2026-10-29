@@ -231,26 +231,12 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid 
   <div class="controls">
    <button class="secondary" id="refreshData" type="button">↻ Refresh Data</button>
    <span id="syncStatus" class="hint" role="status" style="margin-top:0">Connecting to Google Sheets…</span>
-   <select id="field" aria-label="Search field">
-    <option value="voter_name" selected>Voter name (Telugu + English)</option>
-    <option value="all">All fields (including relative names)</option>
-    <option value="Voter Name (Telugu)">Voter name — Telugu</option>
-    <option value="Voter Name (English)">Voter name — English</option>
-    <option value="Relative Name (Telugu)">Father / husband name — Telugu</option>
-    <option value="Relative Name (English)">Father / husband name — English</option>
-    <option value="EPIC No">EPIC number</option>
-    <option value="House No">House number</option>
-    <option value="S.No">Serial number</option>
-    <option value="Age">Age</option>
-    <option value="Sex">Sex</option>
-    <option value="Relation Type">Relation type</option>
-   </select>
    <select id="sex" aria-label="Filter by sex">
-    <option value="">All Genders</option><option value="male">Male</option><option value="female">Female</option>
+    <option value="">All sexes</option><option value="male">Male</option><option value="female">Female</option>
    </select>
    <button class="secondary" id="export">Export results CSV</button>
   </div>
-  <div class="hint"><strong>Name search is voter-only by default.</strong> It checks the voter's own Telugu and English name—not the father’s or husband’s name. Choose “All fields” or a specific field when you want to search relatives, EPIC, house number, age, or other details. Data syncs from the published Google Sheet on load and every 60 seconds. Use Refresh Data to check immediately; internet access is required.</div>
+  <div class="hint"><strong>Smart search:</strong> Enter a voter name, serial number, EPIC number, house number, or relative name. Serial-number searches are prioritized when you enter a number; name searches prioritize the voter’s own name so relatives do not appear as false matches. If no voter-name match is found, other fields are searched automatically. Data syncs from Google Sheets every 60 seconds.</div>
  </section>
  <div class="results-head" id="resultsHead" hidden><h2>Search results</h2><div id="count" aria-live="polite"></div></div>
  <section id="results" class="cards" aria-live="polite" hidden></section>
@@ -263,16 +249,22 @@ let records = [...fallbackRecords]
 const allFields = ["S.No","Voter Name (Telugu)","Voter Name (English)","Relation Type","Relative Name (Telugu)","Relative Name (English)","Age","Sex","House No","EPIC No"];
 const $ = id => document.getElementById(id);
 const normalize = s => String(s ?? "").normalize("NFKC").toLocaleLowerCase().trim();
+const normalizeSerial = s => { const v=String(s ?? "").normalize("NFKC").replace(/[^0-9]/g,""); return v ? String(Number(v)) : ""; };
 function filtered(){
- const q=normalize($("q").value), field=$("field").value, sex=$("sex").value;
- return records.filter(r=>{
-  const hit=!q || (field==="voter_name"
-   ? ["Voter Name (Telugu)","Voter Name (English)"].some(k=>normalize(r[k]).includes(q))
-   : field==="all" ? allFields.some(k=>normalize(r[k]).includes(q))
-   : normalize(r[field]).includes(q));
-  const gender=!sex || normalize(r["Sex"]).includes(sex);
-  return hit && gender;
- });
+ const q=normalize($("q").value), sex=$("sex").value;
+ let matches=[];
+ if(!q) matches=[...records];
+ else {
+  // A numeric query matching an exact serial number should return that voter first,
+  // rather than every record whose age/house number happens to contain the digits.
+  const numericQuery = normalizeSerial(q);
+  const exactSerial = numericQuery ? records.filter(r => normalizeSerial(r["S.No"] ?? r["Serial Number"] ?? r["Serial No"] ?? r["Sl.No"]) === numericQuery) : [];
+  const voterNameMatches=records.filter(r=>["Voter Name (Telugu)","Voter Name (English)"].some(k=>normalize(r[k]).includes(q)));
+  if(numericQuery && exactSerial.length) matches=exactSerial;
+  else if(voterNameMatches.length) matches=voterNameMatches;
+  else matches=records.filter(r=>allFields.some(k=>normalize(r[k]).includes(q)) || (numericQuery && normalizeSerial(r["S.No"]) === numericQuery));
+ }
+ return matches.filter(r=>!sex || normalize(r["Sex"]).includes(sex));
 }
 function escapeHTML(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function item(label,value){return `<div><div class="label">${label}</div><div class="value">${escapeHTML(value||"—")}</div></div>`;}
@@ -305,9 +297,8 @@ function render(){
 }
 function csvEscape(v){return '"'+String(v??"").replace(/"/g,'""')+'"';}
 $("q").addEventListener("input",render);
-$("field").addEventListener("change",render);
 $("sex").addEventListener("change",render);
-$("clear").addEventListener("click",()=>{$("q").value="";$("field").value="voter_name";$("sex").value="";render();$("q").focus();});
+$("clear").addEventListener("click",()=>{$("q").value="";$("sex").value="";render();$("q").focus();});
 $("export").addEventListener("click",()=>{
  const rows=filtered();
  const csv="\uFEFF"+[allFields.map(csvEscape).join(","),...rows.map(r=>allFields.map(k=>csvEscape(r[k])).join(","))].join("\r\n");
@@ -338,7 +329,7 @@ function recordsFromCSV(csvText){
  const headers=rows[hi].map(cleanHeader);
  const findCol=(patterns,fallback)=>{const idx=headers.findIndex(h=>patterns.some(p=>p.test(h)));return idx>=0?idx:fallback;};
  const col={
-  'S.No':findCol([/^s\.?\s*no\b/,/^serial\s*no/],0),
+  'S.No':findCol([/^s\.?\s*no\b/,/^serial\s*(number|no\.?)/,/^sl\.?\s*no\b/,/^s\.?no\.?$/,/क्रमांक/,/సీరియల్/],0),
   'Voter Name (Telugu)':findCol([/voter name.*telugu/,/name.*తెలుగు/,/ఓటరు పేరు/],1),
   'Voter Name (English)':findCol([/voter name.*english/,/name.*english/],2),
   'Relation Type':findCol([/relation type/,/^relation$/],3),
